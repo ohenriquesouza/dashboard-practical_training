@@ -4,7 +4,6 @@
 
 Desenvolver um dashboard funcional capaz de apresentar informações relevantes para o negócio, propor análises úteis para o cliente final e raciocinar sobre qualidade de dados e evolução analítica da solução.
 
----
 ## ANÁLISE DOS DADOS OBTIDOS 📊
 
 Para que essa sessão fique bem definida, foram considerados para a análise os dados obtidos através das propriedas de `id 16` e `id 17`. Foi utilizado, para condensar os dados, o relatório gerado das propriedades em questão.
@@ -66,6 +65,10 @@ cd src/frontend
 npm install
 npm run dev
 ```
+
+-------------------------------------------------------------------------------------------------
+<p>👀 Ei! Uma documentação visual do sistema, visitando todas as telas, pode ser lida em `doc/README.md`</p>
+
 ---
 ## Machine Learning com Potencial de agregar 🤖
 
