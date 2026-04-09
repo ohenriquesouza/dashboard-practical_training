@@ -3,11 +3,7 @@
 
 #### * Este documento apresenta uma abordagem não técnica e sem discussão dos dados, apenas apresnta o projeto desenvolvido. 
 
-## O DESAFIO
-
-Desenvolver um dashboard funcional capaz de apresentar informações relevantes para o negócio, propor análises úteis para o cliente final e raciocinar sobre qualidade de dados e evolução analítica da solução.
-
-## RESULTADO - ABORDAGEM 'TUOR'
+## RESULTADO OBTIDO- ABORDAGEM 'TOUR'
 
 Ao final da etapa de preparação do ambiente virtual, teste de conexão e confirmação do acesso aos dados, deu-se início ao processo de desenvolvimento.
 
@@ -78,7 +74,7 @@ Mais abaixo na página, encontram-se os últimos indicadores, mantendo a aparên
 
 Nessa seção, os dados referentes a relação Profundidade vs Nutrientes, bem como uma comparação entre os talhões, filtradas já por nutrientes.
 
-![Exibição página 1: Land Page](imgs/perfilp10.png)
+![Exibição página 1: Land Page](../imgs/perfilp10.png)
 
 O último indicativo da página realiza um apanhado dos dados químicos gerais da propriedade. 
 

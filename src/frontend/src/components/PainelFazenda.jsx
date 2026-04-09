@@ -891,6 +891,7 @@ const resumo = useMemo(() => {
               fazenda,
               nomeProprietario: nomeProprietario ?? '—',
               ultimaAnalise: resumo?.ultimaAnalise,
+              resumoTalhoes,
             })}
           >
             ⬇ Emitir relatório
