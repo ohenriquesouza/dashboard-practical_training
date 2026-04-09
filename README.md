@@ -39,7 +39,7 @@ Acredita-se que como resultado, o solo fica muito vulnerável durante períodos 
 ### Pré-requisitos
 
 Certifique-se de ter instalado:
-- **Node.js** (para o frontend)
+- **Node.js 24.1** (para o frontend)
 - **Python 3.8+** (para o backend)
 
 ---
