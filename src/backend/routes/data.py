@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from services.bigquery import query_table, TABLES
 import asyncio
+
 from functools import partial
 
 router = APIRouter()
@@ -42,56 +43,113 @@ def get_quimica_timeline(
     ano_inicio: Optional[int] = Query(None),
     ano_fim: Optional[int] = Query(None),
 ):
-    from services.bigquery import get_client, tb, clean
-    
-    client = get_client()
-    filtro_anos = ""
-    if ano_inicio:
-        filtro_anos += f" AND EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) >= {ano_inicio}"
-    if ano_fim:
-        filtro_anos += f" AND EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) <= {ano_fim}"
-    
-    query = f"""
-        SELECT
-            EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) AS ano,
-            EXTRACT(MONTH FROM cq.DT_FIM_Ensaios) AS mes,
-            cq.DT_FIM_Ensaios AS data_analise,
-            ROUND(AVG(SAFE_CAST(cq.pH_H2O AS FLOAT64)), 2) AS pH_H2O,
-            ROUND(AVG(SAFE_CAST(cq.pH_kcl AS FLOAT64)), 2) AS pH_kcl,
-            ROUND(AVG(SAFE_CAST(cq.pH_CaCl2 AS FLOAT64)), 2) AS pH_CaCl2,
-            ROUND(AVG(SAFE_CAST(cq.P AS FLOAT64)), 2) AS P,
-            ROUND(AVG(SAFE_CAST(cq.K AS FLOAT64)), 2) AS K,
-            ROUND(AVG(SAFE_CAST(cq.M_O AS FLOAT64)), 2) AS M_O,
-            ROUND(AVG(SAFE_CAST(cq.O AS FLOAT64)), 2) AS O,
-            ROUND(AVG(SAFE_CAST(cq.Ca AS FLOAT64)), 2) AS Ca,
-            ROUND(AVG(SAFE_CAST(cq.Mg AS FLOAT64)), 2) AS Mg,
-            ROUND(AVG(SAFE_CAST(cq.Na AS FLOAT64)), 2) AS Na,
-            ROUND(AVG(SAFE_CAST(cq.Al AS FLOAT64)), 2) AS Al,
-            ROUND(AVG(SAFE_CAST(cq.H_Al AS FLOAT64)), 2) AS H_Al,
-            ROUND(AVG(SAFE_CAST(cq.S AS FLOAT64)), 2) AS S,
-            ROUND(AVG(SAFE_CAST(cq.CTC AS FLOAT64)), 2) AS CTC,
-            ROUND(AVG(SAFE_CAST(cq.Soma_Bases AS FLOAT64)), 2) AS Soma_Bases,
-            ROUND(AVG(SAFE_CAST(cq.Sat_Bases AS FLOAT64)), 2) AS Sat_Bases,
-            ROUND(AVG(SAFE_CAST(cq.Sat_Al AS FLOAT64)), 2) AS Sat_Al,
-            COUNT(DISTINCT up.idUnidadeProducao) AS total_amostras
-        FROM {tb('TB_CULTURA_QUIMICA_FULL')} cq
-        LEFT JOIN {tb('TB_UNIDADE_PRODUCAO')} up
-            ON cq.idUnidadeProducao = up.idUnidadeProducao
-        WHERE up.idPropriedade = {idPropriedade}
-        {filtro_anos}
-        GROUP BY ano, mes, data_analise
-        ORDER BY ano ASC, mes ASC, data_analise ASC
-    """
-    
-    df = client.query(query).to_dataframe()
-    data = clean(df)
-    
-    return {
-        "idPropriedade": idPropriedade,
-        "parametros": ["pH_H2O", "pH_kcl", "pH_CaCl2", "P", "K", "M_O", "O", "Ca", "Mg", "Na", "Al", "H_Al", "S", "CTC", "Soma_Bases", "Sat_Bases", "Sat_Al"],
-        "total_registros": len(data),
-        "dados": data
-    }
+    from services.bigquery import get_client, tb
+    import pandas as pd
+    import math
+    import datetime
+
+    try:
+        client = get_client()
+
+        filtro_anos = ""
+        if ano_inicio is not None:
+            filtro_anos += f" AND EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) >= {int(ano_inicio)}"
+        if ano_fim is not None:
+            filtro_anos += f" AND EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) <= {int(ano_fim)}"
+
+        query = f"""
+            SELECT
+                EXTRACT(YEAR FROM cq.DT_FIM_Ensaios) AS ano,
+                EXTRACT(MONTH FROM cq.DT_FIM_Ensaios) AS mes,
+                cq.DT_FIM_Ensaios AS data_analise,
+                ROUND(AVG(SAFE_CAST(cq.pH_H2O AS FLOAT64)), 2) AS pH_H2O,
+                ROUND(AVG(SAFE_CAST(cq.pH_kcl AS FLOAT64)), 2) AS pH_kcl,
+                ROUND(AVG(SAFE_CAST(cq.pH_CaCl2 AS FLOAT64)), 2) AS pH_CaCl2,
+                ROUND(AVG(SAFE_CAST(cq.P AS FLOAT64)), 2) AS P,
+                ROUND(AVG(SAFE_CAST(cq.K AS FLOAT64)), 2) AS K,
+                ROUND(AVG(SAFE_CAST(cq.M_O AS FLOAT64)), 2) AS M_O,
+                ROUND(AVG(SAFE_CAST(cq.Ca AS FLOAT64)), 2) AS Ca,
+                ROUND(AVG(SAFE_CAST(cq.Mg AS FLOAT64)), 2) AS Mg,
+                ROUND(AVG(SAFE_CAST(cq.Na AS FLOAT64)), 2) AS Na,
+                ROUND(AVG(SAFE_CAST(cq.Al AS FLOAT64)), 2) AS Al,
+                ROUND(AVG(SAFE_CAST(cq.H_Al AS FLOAT64)), 2) AS H_Al,
+                ROUND(AVG(SAFE_CAST(cq.S AS FLOAT64)), 2) AS S,
+                ROUND(AVG(SAFE_CAST(cq.CTC AS FLOAT64)), 2) AS CTC,
+                ROUND(AVG(SAFE_CAST(cq.Soma_Bases AS FLOAT64)), 2) AS Soma_Bases,
+                ROUND(AVG(SAFE_CAST(cq.Sat_Bases AS FLOAT64)), 2) AS Sat_Bases,
+               
+                COUNT(DISTINCT cq.idGrid) AS total_amostras
+            FROM {tb('TB_CULTURA_QUIMICA_FULL')} cq
+            INNER JOIN {tb('TB_UNIDADE_PRODUCAO')} up
+                ON cq.idUnidadeProducao = up.idUnidadeProducao
+            WHERE up.idProriedade = {idPropriedade}
+            {filtro_anos}
+            GROUP BY 1, 2, 3
+            ORDER BY 1 ASC, 2 ASC, 3 ASC
+        """
+
+        print("=== quimica-timeline ===")
+        print("idPropriedade:", idPropriedade)
+        print("query:", query)
+
+        job = client.query(query)
+        df = job.to_dataframe()
+
+        print("colunas:", list(df.columns))
+        print("linhas:", len(df))
+
+        if df.empty:
+            return {
+                "idPropriedade": idPropriedade,
+                "parametros": [
+                    "pH_H2O", "pH_kcl", "pH_CaCl2", "P", "K", "M_O",
+                    "Ca", "Mg", "Na", "Al", "H_Al", "S", "CTC",
+                    "Soma_Bases", "Sat_Bases"
+                ],
+                "total_registros": 0,
+                "dados": []
+            }
+
+        def serialize_value(v):
+            if pd.isna(v):
+                return None
+
+            if isinstance(v, (pd.Timestamp, datetime.datetime, datetime.date)):
+                return v.isoformat()
+
+            if isinstance(v, float):
+                if math.isnan(v) or math.isinf(v):
+                    return None
+                return float(v)
+
+            if isinstance(v, (int, str, bool)):
+                return v
+
+            # numpy / decimals / outros tipos
+            try:
+                return v.item()
+            except Exception:
+                return str(v)
+
+        dados = []
+        for _, row in df.iterrows():
+            item = {col: serialize_value(row[col]) for col in df.columns}
+            dados.append(item)
+
+        return {
+            "idPropriedade": idPropriedade,
+            "parametros": [
+                "pH_H2O", "pH_kcl", "pH_CaCl2", "P", "K", "M_O",
+                "Ca", "Mg", "Na", "Al", "H_Al", "S", "CTC",
+                "Soma_Bases", "Sat_Bases", "Sat_Al"
+            ],
+            "total_registros": len(dados),
+            "dados": dados
+        }
+
+    except Exception as e:
+        print("ERRO em /propriedade/{idPropriedade}/quimica-timeline:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/resumo/proprietarios")
