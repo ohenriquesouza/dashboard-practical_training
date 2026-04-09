@@ -94,7 +94,7 @@ function PainelNutriente({ nutriente, dados, ordenarPor }) {
 
   const maxVal = Math.max(...itens.map((d) => d._val))
   const minVal = Math.min(...itens.map((d) => d._val))
-  const amplitude = maxVal - minVal || 1
+  // const amplitude = maxVal - minVal || 1
 
   return (
     <div style={styles.painel}>

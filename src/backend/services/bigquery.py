@@ -17,7 +17,6 @@ TABLES = [
     "VW_DASH_FERTILIDADE_SOLO",
 ]
 
-# Cache simples em memória — TTL de 5 minutos
 _cache: dict = {}
 CACHE_TTL = 300
 
