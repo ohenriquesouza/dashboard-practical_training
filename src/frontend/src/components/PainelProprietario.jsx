@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import GeoMap from './GeoMap'
 import PainelFazenda from './PainelFazenda'
+import PainelResumoProprietario from './PainelResumoProprietario'
 
 function nomeValido(nome) {
   if (nome === null || nome === undefined) return false
@@ -23,6 +24,10 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
   const [expanded, setExpanded] = useState(false)
   const [fazendasAbertas, setFazendasAbertas] = useState([])
   const [fazendasInfoAbertas, setFazendasInfoAbertas] = useState([])
+  const painelFazendaRef = useRef(null)
+  const [showTalhoesPorFazenda, setShowTalhoesPorFazenda] = useState({})
+  const [talhoesPorFazenda, setTalhoesPorFazenda] = useState({})
+  const [talhaoSelecionadoPorFazenda, setTalhaoSelecionadoPorFazenda] = useState({})
 
   if (!proprietario) return null
 
@@ -40,28 +45,64 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
     fazendasInfoAbertas.some(openId => String(openId) === String(id))
 
   const toggleFazenda = (id) => {
-    setFazendasAbertas(prev => {
-      const aberta = prev.some(openId => String(openId) === String(id))
-
-      if (aberta) {
-        setFazendasInfoAbertas(infoPrev =>
-          infoPrev.filter(infoId => String(infoId) !== String(id))
-        )
-        return prev.filter(openId => String(openId) !== String(id))
-      }
-
-      return [...prev, id]
-    })
+    const aberta = fazendasAbertas.some(openId => String(openId) === String(id))
+    if (aberta) {
+      setFazendasInfoAbertas([])
+      setFazendasAbertas([])
+    } else {
+      setFazendasInfoAbertas([])
+      setFazendasAbertas([id])
+    }
   }
 
   const toggleInfo = (id) => {
     setFazendasInfoAbertas(prev => {
       const aberta = prev.some(openId => String(openId) === String(id))
+      if (!aberta) {
+        setTimeout(() => {
+          painelFazendaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 50)
+      }
       return aberta
         ? prev.filter(openId => String(openId) !== String(id))
         : [...prev, id]
     })
   }
+
+  const toggleTalhoes = async (fazenda) => {
+    const idFazenda = fazenda.idPropriedade
+    const novoEstado = !showTalhoesPorFazenda[idFazenda]
+    setShowTalhoesPorFazenda(prev => ({ ...prev, [idFazenda]: novoEstado }))
+
+    if (novoEstado && !talhoesPorFazenda[idFazenda]) {
+      try {
+        const res = await fetch(`/api/all?idProprietario=${proprietario.idProprietario}`)
+        const json = await res.json()
+        const unidades = json.TB_UNIDADE_PRODUCAO?.data ?? []
+        const talhoes = unidades
+          .filter(u => Number(u.idProriedade) === Number(idFazenda) && u.geom)
+          .map(u => ({
+            id: u.idUnidadeProducao,
+            nome: u.nomeTalhao || u.nomeRelatorio || `Talhão ${u.idUnidadeProducao}`,
+            geom: u.geom,
+          }))
+        setTalhoesPorFazenda(prev => ({ ...prev, [idFazenda]: talhoes }))
+      } catch (e) {
+        console.error('Erro ao carregar talhões:', e)
+      }
+    }
+  }
+
+  const handleTalhaoClick = (idFazenda, idTalhao) => {
+    setTalhaoSelecionadoPorFazenda(prev => {
+      const atual = prev[idFazenda]
+      return {
+        ...prev,
+        [idFazenda]: String(atual) === String(idTalhao) ? null : idTalhao,
+      }
+    })
+  }
+
 
   const fazendasSelecionadas = fazendas.filter(f =>
     fazendasAbertas.some(id => String(id) === String(f.idPropriedade))
@@ -74,6 +115,7 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
   return (
     <div style={styles.container}>
       <div style={styles.row}>
+        <div style={styles.colunaEsquerda}>
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <div style={styles.avatar}>{inicial}</div>
@@ -137,6 +179,7 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
         </div>
 
         {fazendasSelecionadas.map(fazenda => {
+
           const mostrarMapa = geomValido(fazenda?.geom)
 
           return (
@@ -165,14 +208,38 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
                   }
                 />
                 <InfoRow label="Talhões" value={fazenda.total_talhoes ?? '—'} />
-                <InfoRow label="ID" value={fazenda.idPropriedade} />
+                <PrivateInfoRow label="ID" value={fazenda.idPropriedade} />
               </div>
 
               {mostrarMapa && (
                 <>
                   <div style={styles.divider} />
-                  <div style={styles.mapLabel}>Localização</div>
-                  <GeoMap wkt={fazenda.geom} />
+                  <div style={styles.mapHeader}>
+                    <div style={styles.mapLabel}>Localização</div>
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.talhaoToggleBtn,
+                        ...(showTalhoesPorFazenda[fazenda.idPropriedade]
+                          ? styles.talhaoToggleBtnAtivo
+                          : {}),
+                      }}
+                      onClick={() => toggleTalhoes(fazenda)}
+                    >
+                      {showTalhoesPorFazenda[fazenda.idPropriedade]
+                        ? 'Ocultar talhões'
+                        : 'Exibir talhões'}
+                    </button>
+                  </div>
+                  <GeoMap
+                    wkt={fazenda.geom}
+                    talhoes={talhoesPorFazenda[fazenda.idPropriedade] || []}
+                    showTalhoes={!!showTalhoesPorFazenda[fazenda.idPropriedade]}
+                    onTalhaoClick={(idTalhao) =>
+                      handleTalhaoClick(fazenda.idPropriedade, idTalhao)
+                    }
+                    talhaoSelecionado={talhaoSelecionadoPorFazenda[fazenda.idPropriedade]}
+                  />
                 </>
               )}
 
@@ -195,16 +262,26 @@ export default function PainelProprietario({ proprietario, fazendas = [] }) {
             </div>
           )
         })}
+        </div>
+
+        <PainelResumoProprietario
+          proprietario={proprietario}
+          fazendas={fazendas}
+        />
       </div>
 
+      <div ref={painelFazendaRef}>
       {fazendasComInfoAberta.map(fazenda => (
         <PainelFazenda
           key={fazenda.idPropriedade}
           fazenda={fazenda}
           idProprietario={proprietario.idProprietario}
+          nomeProprietario={nomeProprietario}
           apiBaseUrl="http://localhost:8000"
+          talhaoSelecionado={talhaoSelecionadoPorFazenda[fazenda.idPropriedade]}
         />
       ))}
+      </div>
     </div>
   )
 }
@@ -218,27 +295,86 @@ function InfoRow({ label, value }) {
   )
 }
 
+function PrivateInfoRow({ label, value }) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div style={styles.infoRow}>
+      <span style={styles.infoLabel}>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{
+          ...styles.infoValue,
+          fontFamily: visible ? 'inherit' : 'monospace',
+          letterSpacing: visible ? 'normal' : 2,
+          color: visible ? styles.infoValue.color : '#bbb',
+          userSelect: visible ? 'text' : 'none',
+        }}>
+          {visible ? (value ?? '—') : '••••••'}
+        </span>
+        <button
+          type="button"
+          onClick={() => setVisible(v => !v)}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            lineHeight: 1,
+            fontSize: 14,
+            color: '#aaa',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          title={visible ? 'Ocultar ID' : 'Revelar ID'}
+        >
+          {visible ? (
+            /* olho aberto */
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          ) : (
+            /* olho fechado */
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+              <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          )}
+        </button>
+      </span>
+    </div>
+  )
+}
+
 const styles = {
   container: { display: 'flex', flexDirection: 'column', gap: '16px' },
   row: { display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' },
+
+  colunaEsquerda: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+    width: '300px',
+    flexShrink: 0,
+  },
 
   card: {
     background: '#fff',
     borderRadius: '20px',
     boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
     padding: '24px',
-    width: '260px',
-    flexShrink: 0,
+    width: '100%',
     display: 'flex',
     flexDirection: 'column',
     gap: '14px',
+    boxSizing: 'border-box',
   },
   cardHeader: { display: 'flex', alignItems: 'center', gap: '12px' },
   avatar: {
     width: '46px',
     height: '46px',
     borderRadius: '14px',
-    background: '#1a1a2e',
+    background: '#4e73df',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -306,8 +442,8 @@ const styles = {
     borderRadius: '20px',
     boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
     padding: '24px',
-    width: '320px',
-    flexShrink: 0,
+    width: '100%',
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
     gap: '14px',
@@ -333,12 +469,32 @@ const styles = {
     color: '#aaa',
   },
 
+  mapHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   mapLabel: {
     fontSize: '11px',
     color: '#aaa',
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
+  },
+  talhaoToggleBtn: {
+    fontSize: '10px',
+    fontWeight: '700',
+    padding: '4px 10px',
+    borderRadius: '999px',
+    border: '1px solid #d1d5db',
+    background: '#f9fafb',
+    color: '#374151',
+    cursor: 'pointer',
+  },
+  talhaoToggleBtnAtivo: {
+    background: '#1a1a2e',
+    color: '#fff',
+    border: '1px solid #1a1a2e',
   },
 
   exibirBtn: {

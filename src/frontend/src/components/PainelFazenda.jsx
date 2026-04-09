@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { gerarRelatorio } from '../utils/gerarRelatorio'
 
 import AnaliseQuimica from './AnaliseQuimica'
 import PerfilSolo from './PerfilSolo'
@@ -245,40 +246,48 @@ function getScoreBadgeStyle(score) {
 }
 
 function InfoTooltip({ text }) {
+  const [visible, setVisible] = useState(false)
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div
+      style={{ position: 'relative', display: 'inline-block' }}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
       <span style={{
         cursor: 'pointer',
-        fontSize: 12,
+        fontSize: 11,
+        fontWeight: 700,
         background: '#e0e0e0',
         borderRadius: '50%',
         width: 16,
         height: 16,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        color: '#555',
+        userSelect: 'none',
       }}>
         i
       </span>
 
-      <div style={{
-        position: 'absolute',
-        top: 20,
-        right: 0,
-        background: '#333',
-        color: '#fff',
-        padding: '6px 8px',
-        borderRadius: 6,
-        fontSize: 12,
-        width: 200,
-        opacity: 0,
-        pointerEvents: 'none',
-        transition: '0.2s'
-      }}
-      className="tooltip"
-      >
-        {text}
-      </div>
+      {visible && (
+        <div style={{
+          position: 'absolute',
+          top: 22,
+          right: 0,
+          background: '#333',
+          color: '#fff',
+          padding: '6px 8px',
+          borderRadius: 6,
+          fontSize: 11,
+          width: 210,
+          zIndex: 10,
+          lineHeight: 1.4,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }}>
+          {text}
+        </div>
+      )}
     </div>
   )
 }
@@ -290,13 +299,16 @@ function InfoTooltip({ text }) {
 export default function PainelFazenda({
   fazenda,
   idProprietario,
+  nomeProprietario,
   ano,
   apiBaseUrl = 'http://localhost:8000',
+  talhaoSelecionado,
 }) {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState(null)
   const [allData, setAllData] = useState(null)
-  const [talhoesDetalhados, setTalhoesDetalhados] = useState({})
+  const [modalTalhao, setModalTalhao] = useState(null)   // talhão aberto no modal
+  const talhaoCardRefs = useRef({})
 
   useEffect(() => {
     let ativo = true
@@ -329,11 +341,27 @@ export default function PainelFazenda({
     }
   }, [fazenda?.idPropriedade, idProprietario, apiBaseUrl])
 
+  useEffect(() => {
+    if (talhaoSelecionado == null) return
+    const el = talhaoCardRefs.current[talhaoSelecionado]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [talhaoSelecionado])
+
+  // Abre automaticamente o modal quando o talhão é selecionado no mapa
+  useEffect(() => {
+    if (talhaoSelecionado == null || !resumoTalhoes?.length) return
+    const found = resumoTalhoes.find(t => String(t.idUnidadeProducao) === String(talhaoSelecionado))
+    if (found) setModalTalhao(found)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [talhaoSelecionado])
+
   const dataset = useMemo(() => {
     if (!allData || !fazenda?.idPropriedade) return null
 
     const upRows = allData?.TB_UNIDADE_PRODUCAO?.data ?? []
-    const cqRows = allData?.TB_CULTURA_QUIMICA_FULL?.data ?? []
+    const cqRows = allData?.VW_TB_CULTURA_QUIMICA?.data ?? []
     const gridRows = allData?.TB_GRID_FULL?.data ?? []
     const fertRows = allData?.VW_DASH_FERTILIDADE_SOLO?.data ?? []
 
@@ -707,6 +735,14 @@ const resumo = useMemo(() => {
       },
     ]
 
+    if (!grid.valores) grid.valores = {}
+    for (const r of regras) {
+      if (Number.isFinite(r.valor)) {
+        grid.valores[r.nome] = { valor: r.valor, min: r.min, max: r.max }
+      }
+    }
+
+
     for (const r of regras) {
       if (!Number.isFinite(r.valor)) continue
 
@@ -817,12 +853,8 @@ const resumo = useMemo(() => {
   return resultado
 }, [dataset])
 
-  const toggleDetalheTalhao = (idUnidadeProducao) => {
-    setTalhoesDetalhados((prev) => ({
-      ...prev,
-      [idUnidadeProducao]: !prev[idUnidadeProducao],
-    }))
-  }
+  const abrirModalTalhao = (talhao) => setModalTalhao(talhao)
+  const fecharModalTalhao = () => setModalTalhao(null)
 
   if (loading) {
     return (
@@ -848,71 +880,86 @@ const resumo = useMemo(() => {
     <div style={styles.infoPanel}>
       <div style={styles.infoPanelHeader}>
         <span style={styles.infoPanelTitulo}>📋 Informações — {fazenda.nome_Fazenda}</span>
-        <span style={styles.badge}>
-          {ano ? `Ano ${ano}` : 'Visão consolidada'}
-        </span>
-      </div>
-
-      <div style={styles.infoPanelGrid}>
-        <InfoCard label="Área total" value={formatHa(resumo?.areaTotal)} />
-        <InfoCard label="Talhões" value={resumo?.totalTalhoes ?? '—'} />
-        <InfoCard label="Grids" value={resumo?.totalGrids ?? '—'} />
-        <InfoCard label="Grids com alerta" value={resumo?.gridsComAlerta ?? '—'} />
-        <InfoCard label="Grids críticos" value={resumo?.gridsCriticos ?? '—'} />
-        <div style={{ position: 'relative' }}>
-          <InfoCard
-          label="% área crítica real"
-          value={`${resumo?.percentualCriticoReal?.toFixed(1) ?? 0}%`}
-        />
-          <div style={{ position: 'absolute', top: 8, right: 8 }}>
-            <InfoTooltip text="Percentual da área total do talhão que está em condição crítica com base nas análises de solo." />
-          </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={styles.badge}>
+            {ano ? `Ano ${ano}` : 'Visão consolidada'}
+          </span>
+          <button
+            type="button"
+            style={styles.relatorioBtn}
+            onClick={() => gerarRelatorio({
+              fazenda,
+              nomeProprietario: nomeProprietario ?? '—',
+              ultimaAnalise: resumo?.ultimaAnalise,
+            })}
+          >
+            ⬇ Emitir relatório
+          </button>
         </div>
-        <InfoCard label="Score médio" value={formatNumber(resumo?.scoreMedio)} />
-        <InfoCard label="Última análise" value={formatDate(resumo?.ultimaAnalise)} />
       </div>
 
-      <div style={styles.infoPanelGrid}>
-        <InfoCard label="pH médio" value={formatNumber(resumo?.pH)} />
-        <InfoCard label="P médio" value={formatNumber(resumo?.P)} />
-        <InfoCard label="K médio" value={formatNumber(resumo?.K)} />
-        <InfoCard label="M.O média" value={formatNumber(resumo?.MO)} />
+      <div id={`terreno-${fazenda.idPropriedade}`}>
+        <div style={styles.infoPanelGrid}>
+          <InfoCard label="Área total" value={formatHa(resumo?.areaTotal)} />
+          <InfoCard label="Talhões" value={resumo?.totalTalhoes ?? '—'} />
+          <InfoCard label="Grids" value={resumo?.totalGrids ?? '—'} />
+          <InfoCard label="Grids com alerta" value={resumo?.gridsComAlerta ?? '—'} />
+          <InfoCard label="Grids críticos" value={resumo?.gridsCriticos ?? '—'} />
+          <div style={{ position: 'relative' }}>
+            <InfoCard
+              label="% área crítica real"
+              value={`${resumo?.percentualCriticoReal?.toFixed(1) ?? 0}%`}
+            />
+            <div style={{ position: 'absolute', top: 8, right: 8 }}>
+              <InfoTooltip text="Percentual da área total do talhão que está em condição crítica com base nas análises de solo." />
+            </div>
+          </div>
+          <InfoCard label="Score médio" value={formatNumber(resumo?.scoreMedio)} />
+          <InfoCard label="Última análise" value={formatDate(resumo?.ultimaAnalise)} />
+        </div>
+
+        <div style={{ ...styles.infoPanelGrid, marginTop: 16 }}>
+          <InfoCard label="pH médio" value={formatNumber(resumo?.pH)} />
+          <InfoCard label="P médio" value={formatNumber(resumo?.P)} sublabel="Fósforo" />
+          <InfoCard label="K médio" value={formatNumber(resumo?.K)} sublabel="Potássio" />
+          <InfoCard label="M.O média" value={formatNumber(resumo?.MO)} sublabel="Matéria Orgânica" />
+        </div>
       </div>
 
+      <div id={`talhoes-${fazenda.idPropriedade}`}>
       <Section title="Relatório de talhões">
         {resumoTalhoes.length ? (
           <div style={styles.subcardsGrid}>
             {resumoTalhoes.map((talhao) => {
-              const aberto = !!talhoesDetalhados[talhao.idUnidadeProducao]
               const corStyle = getGridColorStyle(talhao.corResumo)
+              const isSelected = String(talhaoSelecionado) === String(talhao.idUnidadeProducao)
 
               return (
-                <div key={talhao.idUnidadeProducao} style={styles.subcard}>
+                <div
+                  key={talhao.idUnidadeProducao}
+                  ref={el => { talhaoCardRefs.current[talhao.idUnidadeProducao] = el }}
+                  style={{
+                    ...styles.subcard,
+                    ...(isSelected ? { border: '2px solid #1a1a2e', background: '#f0f4ff' } : {}),
+                  }}
+                >
                   <div style={styles.subcardHeader}>
                     <div>
                       <div style={styles.subcardTitle}>{talhao.nomeTalhao}</div>
-
-                        <div style={styles.subcardMeta}>
-                          Score médio: <strong>{formatNumber(talhao.scoreMedio)}</strong> • Grids críticos: <strong>{talhao.gridsCriticos}</strong>
-                        </div>
-
-                      <div
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: '700',
-                          marginTop: '4px',
-                          color:
-                            talhao.prioridade === 'alta'
-                              ? '#c62828'
-                              : talhao.prioridade === 'media'
-                                ? '#ef6c00'
-                                : '#2e7d32',
-                        }}
-                      >
+                      <div style={styles.subcardMeta}>
+                        Score médio: <strong>{formatNumber(talhao.scoreMedio)}</strong> • Grids críticos: <strong>{talhao.gridsCriticos}</strong>
+                      </div>
+                      <div style={{
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        marginTop: '4px',
+                        color: talhao.prioridade === 'alta' ? '#c62828'
+                          : talhao.prioridade === 'media' ? '#ef6c00'
+                          : '#2e7d32',
+                      }}>
                         Prioridade: {talhao.prioridade.toUpperCase()}
                       </div>
                     </div>
-
                     <div style={{ ...styles.colorBadge, ...corStyle }}>
                       Resumo geral: {getGridColorLabel(talhao.corResumo)}
                     </div>
@@ -922,81 +969,11 @@ const resumo = useMemo(() => {
                     <button
                       type="button"
                       style={styles.actionButton}
-                      onClick={() => toggleDetalheTalhao(talhao.idUnidadeProducao)}
+                      onClick={() => abrirModalTalhao(talhao)}
                     >
-                      {aberto ? 'Ocultar detalhes do talhão' : 'Detalhes do talhão'}
+                      Detalhes do talhão ›
                     </button>
                   </div>
-
-                  {aberto && (
-                    <div style={styles.gridDetailsWrap}>
-                      {talhao.grids.length ? (
-                        talhao.grids.map((grid) => (
-                          <div
-                            key={`${talhao.idUnidadeProducao}-${grid.idGrid}`}
-                            style={styles.gridDetailCard}
-                          >
-                            <div style={styles.gridDetailHeader}>
-                              <div style={styles.gridDetailTitle}>{grid.nomeGrid}</div>
-                              <div
-                                style={{
-                                  ...styles.colorBadge,
-                                  ...getGridColorStyle(grid.corGrid),
-                                }}
-                              >
-                                {getGridColorLabel(grid.corGrid)}
-                              </div>
-                            </div>
-
-                            {(() => {
-                                const scoreInfo = getScoreClassificacao(grid.alertas.length)
-
-                                return (
-                                  <div
-                                    style={{
-                                      ...styles.scoreBadge,
-                                      ...getScoreBadgeStyle(scoreInfo.score),
-                                    }}
-                                  >
-                                    Score {scoreInfo.score} · {scoreInfo.label}
-                                  </div>
-                                )
-                              })()}
-
-                            {grid.alertas.length ? (
-                              <div style={styles.alertGridInterna}>
-                                {grid.alertas.map((a, i) => (
-                                  <div
-                                    key={`${grid.idGrid}-${a.nutriente}-${a.tipo}-${i}`}
-                                    style={{
-                                      ...styles.alertCard,
-                                      ...(a.tipo === 'baixo'
-                                        ? styles.alertWarn
-                                        : styles.alertHigh),
-                                    }}
-                                  >
-                                    <div style={styles.alertTitle}>{a.mensagem}</div>
-                                    <div style={styles.alertText}>
-                                      Atual: <strong>{formatNumber(a.valor)}</strong> · Referência:{' '}
-                                      <strong>{formatNumber(a.referencia)}</strong>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div style={styles.infoPanelNote}>
-                                Nenhum alerta encontrado para este grid.
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      ) : (
-                        <div style={styles.infoPanelNote}>
-                          Nenhum grid encontrado para este talhão.
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -1006,44 +983,52 @@ const resumo = useMemo(() => {
             Nenhum dado de talhão/grid encontrado para os filtros atuais.
           </div>
         )}
+
+        {/* Modal flutuante de detalhes */}
+        {modalTalhao && (
+          <TalhaoModal talhao={modalTalhao} onClose={fecharModalTalhao} />
+        )}
       </Section>
-
-      <AnaliseQuimica
-        idPropriedade={fazenda.idPropriedade}
-        // apiBaseUrl={apiBaseUrl}
-      />
-
-      <Section title="Evolução temporal dos indicadores">
-        <ChartBox>
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={serieTemporal}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="ano" />
-              <YAxis />
-              <Tooltip formatter={(value) => value ?? '—'} />
-              <Legend />
-              <Line type="monotone" dataKey="pH" name="Potencial Hidrogeniônico (pH)" stroke="#1a1a2e" strokeWidth={2} />
-              <Line type="monotone" dataKey="P" name="Fósforo (P)" stroke="#2e7d32" strokeWidth={2} />
-              <Line type="monotone" dataKey="K" name="Potássio (K)" stroke="#ef6c00" strokeWidth={2} />
-              <Line type="monotone" dataKey="MO" name="Matéria Orgânica (MO)" stroke="#6a1b9a" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartBox>
-      </Section>
-
-      <div style={styles.chartGrid}>
-        <Section title="Perfil do solo por profundidade">
-          <PerfilSolo serieProfundidade={serieProfundidade} />
-        </Section>
-
-        <Section title="Comparativo entre talhões">
-          <ComparativoTalhoes serieTalhoes={serieTalhoes} />
-        </Section>
       </div>
 
-      <Section title="Resumo químico médio atual">
-        <ResumoQuimico resumoQuimicoAtual={resumoQuimicoAtual} />
-      </Section>
+      <div id={`solo-${fazenda.idPropriedade}`}>
+        <AnaliseQuimica
+          idPropriedade={fazenda.idPropriedade}
+          // apiBaseUrl={apiBaseUrl}
+        />
+
+        <Section title="Evolução temporal dos indicadores">
+          <ChartBox>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={serieTemporal}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="ano" />
+                <YAxis />
+                <Tooltip formatter={(value) => value ?? '—'} />
+                <Legend />
+                <Line type="monotone" dataKey="pH" name="Potencial Hidrogeniônico (pH)" stroke="#1a1a2e" strokeWidth={2} />
+                <Line type="monotone" dataKey="P" name="Fósforo (P)" stroke="#2e7d32" strokeWidth={2} />
+                <Line type="monotone" dataKey="K" name="Potássio (K)" stroke="#ef6c00" strokeWidth={2} />
+                <Line type="monotone" dataKey="MO" name="Matéria Orgânica (MO)" stroke="#6a1b9a" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartBox>
+        </Section>
+
+        <div style={styles.chartGrid}>
+          <Section title="Perfil do solo por profundidade">
+            <PerfilSolo serieProfundidade={serieProfundidade} />
+          </Section>
+
+          <Section title="Comparativo entre talhões">
+            <ComparativoTalhoes serieTalhoes={serieTalhoes} />
+          </Section>
+        </div>
+
+        <Section title="Resumo químico médio atual">
+          <ResumoQuimico resumoQuimicoAtual={resumoQuimicoAtual} />
+        </Section>
+      </div>
     </div>
   )
 }
@@ -1065,13 +1050,293 @@ function ChartBox({ children }) {
   return <div style={styles.chartBox}>{children}</div>
 }
 
-function InfoCard({ label, value }) {
+function InfoCard({ label, value, sublabel }) {
   return (
     <div style={styles.infoCard}>
       <div style={styles.infoCardValue}>{value}</div>
       <div style={styles.infoCardLabel}>{label}</div>
+      {sublabel && <div style={styles.infoCardSublabel}>{sublabel}</div>}
     </div>
   )
+}
+
+// ============================================================================
+// TALHAO MODAL
+// ============================================================================
+
+const NUTRIENTES_META = [
+  { key: 'P', nome: 'Fósforo',          unidade: 'mg/dm³' },
+  { key: 'K', nome: 'Potássio',         unidade: 'mg/dm³' },
+  { key: 'M', nome: 'Matéria Orgânica', unidade: 'dag/kg' },
+  { key: 'V', nome: 'Sat. de Bases',    unidade: '%'      },
+]
+
+function GridDetailCard({ grid }) {
+  const scoreInfo = getScoreClassificacao(grid.alertas.length)
+  const porNutriente = {}
+  for (const a of grid.alertas) {
+    if (!porNutriente[a.nutriente]) porNutriente[a.nutriente] = []
+    porNutriente[a.nutriente].push(a)
+  }
+
+  return (
+    <div style={mStyles.gridCard}>
+      {/* Cabeçalho do grid */}
+      <div style={mStyles.gridCardHeader}>
+        <span style={mStyles.gridCardTitle}>{grid.nomeGrid}</span>
+        <span style={{ ...mStyles.colorBadge, ...getGridColorStyle(grid.corGrid) }}>
+          {getGridColorLabel(grid.corGrid)}
+        </span>
+      </div>
+
+      <div style={{ ...mStyles.scoreBadge, ...getScoreBadgeStyle(scoreInfo.score) }}>
+        Score {scoreInfo.score} · {scoreInfo.label}
+      </div>
+
+      {/* Nutrientes */}
+      <div style={mStyles.nutrientesWrap}>
+        {NUTRIENTES_META.map(({ key, nome, unidade }) => {
+          const alertas  = porNutriente[key] || []
+          const temBaixo = alertas.some(a => a.tipo === 'baixo')
+          const temAlto  = alertas.some(a => a.tipo === 'alto')
+          const dados    = grid.valores?.[key]
+
+          let bg = '#f0fdf4', corTexto = '#166534', bordaCor = '#bbf7d0'
+          let statusLabel = 'Dentro do ideal'
+          let statusIcon  = '✓'
+          let refTexto    = null
+
+          if (temBaixo && !temAlto) {
+            bg = '#fefce8'; corTexto = '#854d0e'; bordaCor = '#fde68a'
+            statusLabel = 'Deficiência'
+            statusIcon  = '↓'
+          } else if (temAlto && !temBaixo) {
+            bg = '#fff1f2'; corTexto = '#9f1239'; bordaCor = '#fecdd3'
+            statusLabel = 'Excesso'
+            statusIcon  = '↑'
+          } else if (temBaixo && temAlto) {
+            bg = '#f3f4f6'; corTexto = '#374151'; bordaCor = '#d1d5db'
+            statusLabel = 'Conflito'
+            statusIcon  = '?'
+          }
+
+          if (dados) {
+            const valorFmt = `${formatNumber(dados.valor)} ${unidade}`
+            if (temBaixo && Number.isFinite(dados.min)) {
+              refTexto = `${valorFmt} · ideal ≥ ${formatNumber(dados.min)}`
+            } else if (temAlto && Number.isFinite(dados.max)) {
+              refTexto = `${valorFmt} · ideal ≤ ${formatNumber(dados.max)}`
+            } else {
+              refTexto = valorFmt
+            }
+          }
+
+          return (
+            <div key={key} style={{ background: bg, border: `1px solid ${bordaCor}`, borderRadius: 8, padding: '7px 10px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{ width: 22, height: 22, borderRadius: '50%', background: bordaCor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: corTexto, flexShrink: 0 }}>
+                {statusIcon}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: corTexto }}>
+                  {nome} <span style={{ opacity: 0.55, fontWeight: 400 }}>({key})</span>
+                  <span style={{ float: 'right', fontWeight: 400 }}>{statusLabel}</span>
+                </div>
+                {refTexto && (
+                  <div style={{ fontSize: 10, color: corTexto, opacity: 0.7, marginTop: 2 }}>{refTexto}</div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TalhaoModal({ talhao, onClose }) {
+  const corStyle = getGridColorStyle(talhao.corResumo)
+  const scoreInfo = getScoreClassificacao(talhao.scoreMedio)
+
+  // colunas de até 5 grids
+  const GRIDS_POR_COLUNA = 5
+  const grids = talhao.grids || []
+  const numColunas = Math.max(1, Math.ceil(grids.length / GRIDS_POR_COLUNA))
+  const colunas = Array.from({ length: numColunas }, (_, col) =>
+    grids.slice(col * GRIDS_POR_COLUNA, (col + 1) * GRIDS_POR_COLUNA)
+  )
+
+  // fechar com Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div style={mStyles.overlay} onClick={onClose}>
+      <div style={mStyles.dialog} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={mStyles.dialogHeader}>
+          <div>
+            <div style={mStyles.dialogTitle}>{talhao.nomeTalhao}</div>
+            <div style={mStyles.dialogMeta}>
+              Score médio: <strong>{formatNumber(talhao.scoreMedio)}</strong>
+              &nbsp;·&nbsp;
+              Grids: <strong>{grids.length}</strong>
+              &nbsp;·&nbsp;
+              Grids críticos: <strong>{talhao.gridsCriticos}</strong>
+              &nbsp;·&nbsp;
+              <span style={{
+                color: talhao.prioridade === 'alta' ? '#c62828'
+                  : talhao.prioridade === 'media' ? '#ef6c00'
+                  : '#2e7d32',
+                fontWeight: 700,
+              }}>
+                Prioridade {talhao.prioridade.toUpperCase()}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span style={{ ...mStyles.colorBadge, ...corStyle }}>
+              {getGridColorLabel(talhao.corResumo)}
+            </span>
+            <button type="button" style={mStyles.closeBtn} onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        {/* Grids */}
+        {grids.length === 0 ? (
+          <div style={{ fontSize: 13, color: '#888', fontStyle: 'italic', padding: '16px 0' }}>
+            Nenhum grid encontrado para este talhão.
+          </div>
+        ) : (
+          <div style={mStyles.columnsWrap}>
+            {colunas.map((colGrids, ci) => (
+              <div key={ci} style={mStyles.column}>
+                {colGrids.map(grid => (
+                  <GridDetailCard key={`${talhao.idUnidadeProducao}-${grid.idGrid}`} grid={grid} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// estilos do modal
+const mStyles = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: 24,
+  },
+  dialog: {
+    background: '#fff',
+    borderRadius: 20,
+    boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+    padding: 28,
+    maxWidth: '90vw',
+    maxHeight: '85vh',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 20,
+    minWidth: 360,
+  },
+  dialogHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+    flexWrap: 'wrap',
+    borderBottom: '1px solid #f0f0f0',
+    paddingBottom: 16,
+  },
+  dialogTitle: {
+    fontSize: 17,
+    fontWeight: 800,
+    color: '#1a1a2e',
+  },
+  dialogMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  closeBtn: {
+    background: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    borderRadius: '50%',
+    width: 30,
+    height: 30,
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#374151',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  colorBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
+  },
+  scoreBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: '4px 10px',
+    width: 'fit-content',
+  },
+  columnsWrap: {
+    display: 'flex',
+    gap: 14,
+    alignItems: 'flex-start',
+    overflowX: 'auto',
+  },
+  column: {
+    flex: '0 0 280px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+  },
+  gridCard: {
+    background: '#fafafa',
+    border: '1px solid #ececec',
+    borderRadius: 14,
+    padding: 14,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  gridCardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  gridCardTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#1f2937',
+  },
+  nutrientesWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
+    marginTop: 2,
+  },
 }
 
 // ============================================================================
@@ -1109,6 +1374,16 @@ const styles = {
     borderRadius: '999px',
     padding: '6px 10px',
   },
+  relatorioBtn: {
+    fontSize: '11px',
+    fontWeight: '700',
+    color: '#fff',
+    background: '#1a1a2e',
+    border: 'none',
+    borderRadius: '999px',
+    padding: '6px 14px',
+    cursor: 'pointer',
+  },
   infoPanelGrid: {
     display: 'flex',
     gap: '16px',
@@ -1130,6 +1405,12 @@ const styles = {
     fontSize: '11px',
     color: '#aaa',
     marginTop: '4px',
+  },
+  infoCardSublabel: {
+    fontSize: '10px',
+    color: '#c0c0c0',
+    marginTop: '2px',
+    fontStyle: 'italic',
   },
   infoPanelNote: {
     fontSize: '12px',

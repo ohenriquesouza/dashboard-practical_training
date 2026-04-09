@@ -77,9 +77,9 @@ def get_quimica_timeline(
                 ROUND(AVG(SAFE_CAST(cq.CTC AS FLOAT64)), 2) AS CTC,
                 ROUND(AVG(SAFE_CAST(cq.Soma_Bases AS FLOAT64)), 2) AS Soma_Bases,
                 ROUND(AVG(SAFE_CAST(cq.Sat_Bases AS FLOAT64)), 2) AS Sat_Bases,
-               
+
                 COUNT(DISTINCT cq.idGrid) AS total_amostras
-            FROM {tb('TB_CULTURA_QUIMICA_FULL')} cq
+            FROM {tb('VW_TB_CULTURA_QUIMICA')} cq
             INNER JOIN {tb('TB_UNIDADE_PRODUCAO')} up
                 ON cq.idUnidadeProducao = up.idUnidadeProducao
             WHERE up.idProriedade = {idPropriedade}
@@ -186,7 +186,7 @@ def get_resumo_proprietarios():
             ON pr.idProprietario = p.idProprietario
         LEFT JOIN {tb('TB_UNIDADE_PRODUCAO')} up
             ON up.idProriedade = pr.idPropriedade
-        LEFT JOIN {tb('TB_CULTURA_QUIMICA_FULL')} cq
+        LEFT JOIN {tb('VW_TB_CULTURA_QUIMICA')} cq
             ON cq.idUnidadeProducao = up.idUnidadeProducao
         WHERE p.Ativo = TRUE
         GROUP BY p.idProprietario, p.Nome
